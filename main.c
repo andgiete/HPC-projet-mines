@@ -49,9 +49,7 @@ float vect_norm(void *args){
 
     for( int i = 0 ; i<n; i=i+8){
         __m256 v=_mm256_load_ps(&U[i]);
-        __m256 minus_1=_mm256_load_ps(&minus1[0]);
-        __m256 minus_v=_mm256_mul_ps(v, minus_1);
-        __m256 abs_v=_mm256_max_ps(v, minus_v);
+        __m256 abs_v=_mm256_sqrt_ps(_mm256_mul_ps(v,v));
         __m256 sqrt_v=_mm256_sqrt_ps(abs_v);
 
         result_v = _mm256_add_ps(result_v,sqrt_v);
