@@ -6,14 +6,17 @@
 #include <sys/time.h>
 #include <pthread.h>
 
+// Global variable used to store the results of every thread 
 float results[16];
 
+// Structure to pass data to every thread
 struct norm_struct {
     float *U_vect;
     int n;
     int id;
 };
 
+// To measure time
 double now(){
    // Retourne l'heure actuelle en secondes
    struct timeval t; double f_t;
@@ -22,6 +25,7 @@ double now(){
    return f_t;
 }
 
+// Calculate norm using standard method
 float norm(void *args){
     struct norm_struct *actual_args = args;
     int n = actual_args->n;
@@ -34,6 +38,7 @@ float norm(void *args){
     return sum;
 }
 
+// Calculate norm using vectorial method
 float vect_norm(void *args){
 
     struct norm_struct *actual_args = args;
@@ -45,7 +50,8 @@ float vect_norm(void *args){
 
     float sum = 0;
 
-    __m256 result_v=_mm256_load_ps(&f[0]);
+    // If U is unaligned, we use the function 'mm256_loadu_ps()' to copy unaligned data to register
+    __m256 result_v=_mm256_load_ps(&f[0]); 
 
     for( int i = 0 ; i<n; i=i+8){
         __m256 v=_mm256_load_ps(&U[i]);
@@ -62,6 +68,7 @@ float vect_norm(void *args){
     return sum;
 }
 
+// Identical to function norm but used for multithreading method in normPar 
 void *norm_th(void *args){
     struct norm_struct *actual_args = args;
     int n = actual_args->n;
@@ -76,6 +83,7 @@ void *norm_th(void *args){
     pthread_exit(&sum);
 }
 
+// Identical to function vect_norm but used for multithreading method in normPar
 void *vect_norm_th(void *args){
     struct norm_struct *actual_args = args;
     int n = actual_args->n;
@@ -87,6 +95,7 @@ void *vect_norm_th(void *args){
 
     float sum = 0;
 
+    // If U is unaligned, we use the function 'mm256_loadu_ps()' to copy unaligned data to register
     __m256 result_v=_mm256_load_ps(&f[0]);
 
     for( int i = 0 ; i<n; i=i+8){
@@ -106,6 +115,7 @@ void *vect_norm_th(void *args){
     pthread_exit(&sum);
 }
 
+// Used to divide the task to all threads, pass functions to threads and aggregate all results in one result
 float normPar(float *U, int n, int mode, int nb_threads){
 
     int N = n/nb_threads;
@@ -153,18 +163,47 @@ float normPar(float *U, int n, int mode, int nb_threads){
 int main(int argc, char** argv){
 
     int nb_threads = 1;
+    int n = 1048576;
 
-    if(argc>1){
-        nb_threads = atoi(argv[1]);
+    // if number of threads is provided, use it else use 1
+    if(argc == 2){
+        n = atoi(argv[1]);
+        if(n > 1048576) {
+            n = 1048576;
+            printf("Max dimension allowed is 1048576\nUsing %d as dimension\n", n);
+        }
+        if(n%8 != 0){
+            n = n - n%8;
+            printf("Dimension should be multiple of 8\nUsing %d as dimension\n", n);
+        }
     }
+    if(argc>2){
+        n = atoi(argv[1]);
+        if(n > 1048576) {
+            n = 1048576;
+            printf("Max dimension allowed is 1048576\nUsing %d as dimension\n", n);
+        }
+        if(n%8 != 0){
+            n = n - n%8;
+            printf("Dimension should be multiple of 8\nUsing %d as dimension\n", n);
+        }
+        nb_threads = atoi(argv[2]);
+    }
+    printf("Using %d threads\n", nb_threads);
 
     float U[1048576] __attribute__((aligned(32)));
-    int n = 1048576;
+    // If the size of U is not a multiple of 8:
+    // We calculate restof_n = n % 8 and new_n = n - restof_n
+    // We do the same calculation with new_n that is necessarily multiple of 8
+    // The remaining vector is necessarily of size less than 8
+    // We calculate the norm of the remaining vector using standard method
+    // Execution time will not differ since standard method is quick for small vectors 
 
     float std_res;
     float vect_res;
     float th_res;
 
+    // Generating random values of U with some negative numbers 
     for(int i=0; i<n; i++){
         U[i] = (rand() % 10)/10.0;
         if(i % 3 == 0) {
@@ -172,29 +211,36 @@ int main(int argc, char** argv){
         }
     }
 
+    // Initializing the structure to be passed to norm functions
     struct norm_struct norm_args = { .U_vect=&U, .n=n ,.id=0};
 
+    // Norm calculation using standard method
     double time; 
     time = now();
     std_res = norm(&norm_args);
     time = now() - time;
     printf("Norm using std: %.2f  executed in %.8f seconds \n", std_res, time);
 
+    // Norm calculation using vectorial method
     time = now();
     vect_res = vect_norm(&norm_args);
     time = now() - time;
     printf("Norm using vect: %.2f  executed in %.8f seconds \n", vect_res, time);
 
+    // Norm calculation using multithreaded standard method, mode 0
     time = now();
     th_res = normPar(U, n, 0, nb_threads);
     time = now() - time;
     printf("Norm using multithreaded mode %d with %d threads: %.2f  executed in %.8f seconds \n", 0, nb_threads, th_res, time);
 
+    // Norm calculation using multithreaded vectorial method, mode 1
     time = now();
     th_res = normPar(U, n, 1, nb_threads);
     time = now() - time;
     printf("Norm using multithreaded mode %d with %d threads: %.2f  executed in %.8f seconds \n", 1, nb_threads, th_res, time);
 
+
+    // The next bloc is used to generate the csv file to plot the graph showing the different execution times per method
     int MAX = 16;
     FILE *fp;
     fp = fopen("./data.csv", "w+");
